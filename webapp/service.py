@@ -147,6 +147,11 @@ def run_job(tool_id: str, raw_dir: Path, work_dir: Path) -> tuple[Path, str]:
     )
     try:
         _stage(raw_dir, in_dir, tool.folder_input)
+        if tool_id == "sc_decode" and not any(in_dir.glob("*_tex.sc")):
+            raise JobError(
+                "No *_tex.sc file found. Upload the file ending in _tex.sc, "
+                "or use Decode SC (by parts) with the .sc file."
+            )
         tool.run(in_dir, out_dir)
     except JobError:
         raise
