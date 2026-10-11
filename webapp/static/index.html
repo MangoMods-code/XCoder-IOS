@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>XCoder</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="XCoder">
+<meta name="theme-color" content="#0f1a1c">
+<style>
+:root{--bg:#f3f5f4;--card:#fff;--ink:#14201f;--mute:#5b6b69;--line:#d5dddb;--accent:#0b7a6e;--accent-ink:#fff;--err:#b3261e}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0f1a1c;--card:#172426;--ink:#e6eeec;--mute:#93a5a2;--line:#2a3b3d;--accent:#3cc4b0;--accent-ink:#06201c;--err:#ff8a80}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+body{padding:env(safe-area-inset-top,0) 16px env(safe-area-inset-bottom,0)}
+main{max-width:560px;margin:0 auto;padding:20px 0 40px}
+h1{font-size:26px;margin:8px 0 4px;letter-spacing:-.01em}
+.sub{color:var(--mute);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+label{display:block;font-weight:600;margin-bottom:6px}
+input[type=password],select{width:100%;font-size:17px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+button,.btn{display:block;width:100%;min-height:48px;font-size:17px;font-weight:600;border:0;border-radius:10px;background:var(--accent);color:var(--accent-ink);text-align:center;text-decoration:none;padding:12px;margin-top:12px;cursor:pointer}
+button.ghost{background:transparent;color:var(--mute);border:1px solid var(--line)}
+button:disabled{opacity:.5}
+.help{color:var(--mute);margin:8px 0 0;font-size:15px}
+.files{margin:10px 0 0;padding:0;list-style:none;font-size:15px;color:var(--mute);word-break:break-all}
+.msg{white-space:pre-wrap;font:13px/1.4 ui-monospace,Menlo,monospace;color:var(--err);margin:10px 0 0;max-height:240px;overflow:auto}
+.ok{color:var(--accent);font-weight:600;margin:10px 0 0}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>XCoder</h1>
+  <p class="sub">Supercell SC and CSV tools</p>
+
+  <section id="login" class="card hidden">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <button id="loginBtn">Sign in</button>
+    <p id="loginMsg" class="msg"></p>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="card">
+      <label for="tool">Tool</label>
+      <select id="tool"></select>
+      <p id="help" class="help"></p>
+    </div>
+    <div class="card">
+      <label for="files">Files</label>
+      <input id="files" type="file" multiple>
+      <ul id="fileList" class="files"></ul>
+      <button id="runBtn">Run</button>
+      <p id="status" class="ok hidden"></p>
+      <p id="err" class="msg"></p>
+      <a id="save" class="btn hidden">Save result</a>
+    </div>
+    <button id="logout" class="ghost">Sign out</button>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let tools = [], saveUrl = null;
+
+async function api(path, opts) {
+  const res = await fetch(path, {credentials: "same-origin", ...opts});
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    const err = new Error(detail); err.status = res.status; throw err;
+  }
+  return res;
+}
+
+async function boot() {
+  const me = await (await api("/api/me")).json();
+  if (!me.configured) { show("login"); $("loginMsg").textContent = "Server setup incomplete: APP_PASSWORD is not set."; $("loginBtn").disabled = true; return; }
+  if (!me.authed) return show("login");
+  tools = await (await api("/api/tools")).json();
+  $("tool").innerHTML = tools.map(t => `<option value="${t.id}">${t.label}</option>`).join("");
+  updateHelp(); show("app");
+}
+function show(which) { $("login").classList.toggle("hidden", which !== "login"); $("app").classList.toggle("hidden", which !== "app"); }
+function updateHelp() { const t = tools.find(x => x.id === $("tool").value); $("help").textContent = t ? t.help : ""; }
+
+$("tool").onchange = updateHelp;
+$("files").onchange = () => { $("fileList").innerHTML = [...$("files").files].map(f => `<li>${f.name.replace(/</g,"&lt;")} (${(f.size/1048576).toFixed(1)} MB)</li>`).join(""); };
+
+$("loginBtn").onclick = async () => {
+  $("loginMsg").textContent = "";
+  try {
+    await api("/api/login", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({password: $("pw").value})});
+    $("pw").value = ""; await boot();
+  } catch (e) { $("loginMsg").textContent = e.message; }
+};
+$("pw").onkeydown = e => { if (e.key === "Enter") $("loginBtn").click(); };
+$("logout").onclick = async () => { await api("/api/logout", {method: "POST"}); show("login"); };
+
+$("runBtn").onclick = async () => {
+  const files = $("files").files;
+  $("err").textContent = ""; $("save").classList.add("hidden");
+  if (!files.length) { $("err").textContent = "Choose at least one file."; return; }
+  const fd = new FormData(); fd.append("tool", $("tool").value);
+  for (const f of files) fd.append("files", f);
+  $("runBtn").disabled = true; $("status").textContent = "Working. Large files can take a minute."; $("status").classList.remove("hidden");
+  try {
+    const blob = await (await api("/api/run", {method: "POST", body: fd})).blob();
+    if (saveUrl) URL.revokeObjectURL(saveUrl);
+    saveUrl = URL.createObjectURL(blob);
+    $("save").href = saveUrl; $("save").download = `xcoder-${$("tool").value}.zip`;
+    $("save").classList.remove("hidden"); $("status").textContent = "Done.";
+  } catch (e) {
+    if (e.status === 401) { show("login"); }
+    $("status").classList.add("hidden"); $("err").textContent = e.message;
+  } finally { $("runBtn").disabled = false; }
+};
+boot().catch(e => { show("login"); $("loginMsg").textContent = e.message; });
+</script>
+</body>
+</html>
