@@ -111,7 +111,12 @@ def _create_objects_output_folder(output_folder: Path, base_name: str) -> Path:
 def _save_textures(swf: SupercellSWF, textures_output: Path, base_name: str) -> None:
     os.makedirs(textures_output, exist_ok=True)
     for texture_index, texture in enumerate(swf.textures):
-        assert texture.image is not None
+        if texture.image is None:
+            logger.warning(
+                f"Texture {texture_index} of {base_name} has no pixel data in the "
+                "uploaded file(s). If a matching _tex.sc exists, upload it too."
+            )
+            continue
         texture.image.save(textures_output / f"{base_name}_{texture_index}.png")
 
 
