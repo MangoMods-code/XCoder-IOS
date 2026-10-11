@@ -140,6 +140,7 @@ class SupercellSWF:
         assert self.reader is not None
 
         has_texture = True
+        skipped_tags: dict[int, int] = {}
 
         texture_id = 0
         movie_clips_loaded = 0
@@ -151,6 +152,12 @@ class SupercellSWF:
             length = self.reader.read_uint()
 
             if tag == 0:
+                if skipped_tags:
+                    logger.info(f"Skipped tags (id: count): {skipped_tags}")
+                logger.info(
+                    f"Loaded {len(self.shapes)} shapes, {len(self.movie_clips)} movie "
+                    f"clips, {len(self.textures)} textures; has_texture={has_texture}"
+                )
                 return has_texture
             elif tag in SupercellSWF.TEXTURES_TAGS:
                 # this is done to avoid loading the data file
@@ -218,6 +225,7 @@ class SupercellSWF:
 
                 matrices_loaded = 0
             else:
+                skipped_tags[tag] = skipped_tags.get(tag, 0) + 1
                 self.reader.read(length)
 
     def get_display_object(
